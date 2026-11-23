@@ -27,10 +27,11 @@ const pendingMathLanguage = 'dsh-math-pending';
 /// source, so the half-written formula never flashes as an error or as
 /// Markdown-mangled prose.
 String normalizeMath(String source, {bool streaming = false}) {
-  if (!source.contains(r'$') && !(streaming && source.contains(r'\['))) {
-    return source;
-  }
-  return _MathScanner(source, streaming).run();
+  final dollar = source.lastIndexOf(r'$');
+  final bracket = streaming ? source.lastIndexOf(r'\[') : -1;
+  // One `$` pairs with nothing; a streaming `\[` may still need its pending fence.
+  if (bracket < 0 && (dollar < 0 || source.indexOf(r'$') == dollar)) return source;
+  return _MathScanner(source, streaming).run(bracket > dollar ? bracket : dollar);
 }
 
 /// Whether the `$` at [open] starts inline maths, and where its closing `$`
@@ -83,13 +84,13 @@ class _MathScanner {
 
   int get _n => text.length;
 
-  String run() {
+  String run(int lastOpener) {
     var i = 0;
     var lineStart = 0;
     var atLineStart = true;
     _Fence? fence;
     var paragraphEnd = -1;
-    while (i < _n) {
+    while (i <= lastOpener) {
       if (atLineStart) {
         atLineStart = false;
         lineStart = i;
@@ -169,6 +170,7 @@ class _MathScanner {
       _out.writeCharCode(c);
       i += 1;
     }
+    if (i < _n) _out.write(text.substring(i));
     return _out.toString();
   }
 

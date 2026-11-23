@@ -1,6 +1,8 @@
 // Source preparation for the reply renderer: maths delimiters (with the
 // currency guard) and the streaming-tail repair.
 
+import 'package:dsh_app/ui/chat/dsh_ui/dsh_ui_model.dart';
+import 'package:dsh_app/ui/chat/render/markdown_prepare.dart';
 import 'package:dsh_app/ui/chat/render/math_syntax.dart';
 import 'package:dsh_app/ui/chat/render/stream_repair.dart';
 import 'package:dsh_app/ui/chat/render/table_syntax.dart';
@@ -205,5 +207,63 @@ void main() {
     test('a bare rule stays a rule', () {
       expect(blankLineBeforeTables('标题\n---'), '标题\n---');
     });
+  });
+
+  test('prepareTables is one pass of blankLineBeforeTables then boldTableHeaders', () {
+    for (final source in [
+      '清单：\n| a | b |\n|---|---|\n| 1 | 2 |',
+      // The blank above the second header cuts the first one off its delimiter.
+      '| x | y |\n|---|---|\n|---|---|',
+      '| a | b |\n|---|---|\n|---|---|\n|---|---|',
+    ]) {
+      expect(prepareTables(source), boldTableHeaders(blankLineBeforeTables(source)));
+    }
+    expect(prepareTables('| x | y |\n|---|---|\n|---|---|'), '| x | y |\n\n|**---**|**---**|\n|---|---|');
+  });
+
+  test('stream updates prepare only the live tail and preserve whole-reply syntax', () {
+    String whole(String input) => prepareTables(normalizeMath(fenceBareDshUiViews(input), streaming: true));
+    final lengths = <int>[];
+    final cache = StreamingMarkdownPreparation((input) {
+      lengths.add(input.length);
+      return whole(input);
+    });
+    void check(String input) => expect(cache.prepare(input), whole(input), reason: input);
+
+    const formula =
+        r'Take $x$.'
+        '\n\n';
+    const table = 'Values\n| Name |\n| --- |\n| Ada |\n\n';
+    const code = '```sh\necho "\$HOME"\n```\n\n';
+    const sealed = '$formula$table$code';
+    check(formula);
+    check(formula + table);
+    check(sealed);
+    lengths.clear();
+    check('${sealed}red');
+    check('${sealed}redraw');
+    expect(lengths, [3, 6]);
+
+    check('$sealed```sh\n');
+    lengths.clear();
+    check('$sealed```sh\necho "\$HOME"');
+    check('$sealed```sh\necho "\$HOME"\n| A | B |\n|---|---|\n');
+    expect(lengths, isEmpty, reason: 'an open code body passes through preparation unchanged');
+
+    for (final (start, more) in [
+      ('prefix ```inline\n```dart\nx\n```\n\n', r'tail $x$'),
+      ('cost \$a\\\n~~~\$\nx\n~~~\n\n', r'tail $x$'),
+      ('{\n"type":"text",\n\n', '"text":"a }"}'),
+      (
+        r'$$'
+            '\nx\n\n',
+        r'next $$',
+      ),
+      ('```\nx\n\u0085```\n\n', '{"type":"text","text":"ok"}'),
+    ]) {
+      check(sealed + start);
+      check(sealed + start + more);
+    }
+    check(r'Replaced with $y$.');
   });
 }

@@ -1,6 +1,6 @@
-# Fork-only build of the root-shell branch: an arm64 "side" APK
+# Fork-only build of the main branch: an arm64 "side" APK
 # (io.github.ccch1mneyyy.dsh_app.test, "DSH Go 测试") that installs next to the
-# released app with its own data, so a local root backend can be tried without
+# released app with its own data, so fork features can be tried without
 # touching the installed build or its API keys.
 #
 # The APK and, when the build fails, the tail of the build log are published as
@@ -11,7 +11,7 @@ name: Fork APK
 on:
   workflow_dispatch:
   push:
-    branches: [root-shell]
+    branches: [main]
 
 permissions:
   contents: write

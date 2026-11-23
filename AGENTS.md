@@ -1,5 +1,18 @@
 # AGENTS.md
 
+## Fork 仓库操作规范（`licoba/dsh-Go`）
+
+- **默认单分支开发（`main`）**：所有 Fork 改动默认直接提交或合入 `main` 分支，不再新建或长期维护额外功能分支（如 `root-shell`），避免分支过多。
+- **同步上游**：同步上游 `ccch1mneyyy/dsh-Go` 的 `main` 时，直接合并到本仓库 `main` 分支并保留全部 Fork 自定义改动。
+- **自动出包流水线**：推送到 `main` 会自动触发 `.github/workflows/fork-apk.yml`（`Fork APK`），构建 arm64 侧装测试包（`io.github.ccch1mneyyy.dsh_app.test`）并发布到 GitHub Releases。
+- **Git 提交身份**：本仓库所有提交统一使用 `licoba <19327381+licoba@users.noreply.github.com>`。
+- **当前 Fork 保留的自定义行为**：
+  - `android_shell` 支持 root/su 后端；
+  - 手机操控（PhoneControl / SafetyGate）默认免确认、解锁受限项；
+  - 会话权限默认开启自动允许（`autoApproveCommands = true`、`ChatController._autoApprove = true`，以及后台/未打开会话通过 `ChatAlertsController` 自动放行）。
+
+---
+
 dsh-Go 是 DeepSeek Harness 的手机应用：Flutter 原生界面 + 纯 Dart 客户端 + 打过补丁的 DSH 引擎运行时。Android 版在 PRoot 里运行 `dsh web`；鸿蒙版共用同一套 Dart，宿主是 ArkTS（`app/ohos/`），引擎跑在 App 进程内的 Node 里（`runtime/ohos/`，见 [docs/architecture.md §3B](docs/architecture.md)）。改动前先读 [CONTRIBUTING.md](CONTRIBUTING.md)（贡献与验证契约）与 [docs/architecture.md](docs/architecture.md)。
 
 ## 仓库布局

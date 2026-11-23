@@ -4,7 +4,7 @@
 
 - **默认单分支开发（`main`）**：所有 Fork 改动默认直接提交或合入 `main` 分支，不再新建或长期维护额外功能分支（如 `root-shell`），避免分支过多。
 - **同步上游**：同步上游 `ccch1mneyyy/dsh-Go` 的 `main` 时，直接合并到本仓库 `main` 分支并保留全部 Fork 自定义改动。
-- **自动出包流水线**：推送到 `main` 会自动触发 `.github/workflows/fork-apk.yml`（`Fork APK`），构建 arm64 侧装测试包（`io.github.ccch1mneyyy.dsh_app.test`）并发布到 GitHub Releases。
+- **自动出包流水线**：推送到 `main` 会自动触发 `.github/workflows/fork-apk.yml`（`Fork APK`），使用仓库 Secrets（`ANDROID_KEYSTORE_*` / `ANDROID_KEY_*`）中的固定签名构建 arm64 侧装测试包（`io.github.ccch1mneyyy.dsh_app.test`）并发布到 GitHub Releases，确保每次出包可直接覆盖安装。
 - **Git 提交身份**：本仓库所有提交统一使用 `licoba <19327381+licoba@users.noreply.github.com>`。
 - **当前 Fork 保留的自定义行为**：
   - `android_shell` 支持 root/su 后端；

@@ -250,7 +250,7 @@ class MarkdownBody extends StatefulWidget {
           headerBackground: tableFills.header,
           rowStripeColor: tableFills.stripe,
           cellPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          columnWidth: const MinColumnWidth(IntrinsicColumnWidth(), FixedColumnWidth(_maxColumnWidth)),
+          columnWidth: const _CappedIntrinsicColumnWidth(_maxColumnWidth),
           overflow: TableOverflow.scroll,
         ),
       ),
@@ -587,7 +587,7 @@ class MarkdownBody extends StatefulWidget {
   @visibleForTesting
   static String prepareSource(String text, {bool streaming = false, bool repairBareViews = false}) {
     final source = _prepareMarkdown(text, repairBareViews: repairBareViews, streaming: streaming);
-    return streaming ? _withCursor(repairStreamingMarkdown(source)) : source;
+    return streaming ? repairStreamingMarkdown(source, cursor: _cursorSentinel) : source;
   }
 
   /// Characters a second when the model is slower than this; the reveal goes faster
@@ -605,25 +605,6 @@ class MarkdownBody extends StatefulWidget {
     final repaired = repairBareViews ? fenceBareDshUiViews(text) : text;
     return prepareTables(normalizeMath(repaired, streaming: streaming));
   }
-
-  /// [text] with the cursor sentinel where the reader's eye is: at the end
-  /// of the last line, except that a closing fence or a display formula's
-  /// `\]` must stay alone on its line, and a table row takes it inside its
-  /// last cell rather than as a new cell after the pipe.
-  static String _withCursor(String text) {
-    final last = text.substring(text.lastIndexOf('\n') + 1).trim();
-    if (_fenceLine.hasMatch(last) || last.endsWith(r'\]')) {
-      return '$text\n$_cursorSentinel';
-    }
-    if (last.length > 1 && last.startsWith('|') && last.endsWith('|')) {
-      final pipe = text.lastIndexOf('|');
-      return '${text.substring(0, pipe).trimRight()} $_cursorSentinel '
-          '${text.substring(pipe)}';
-    }
-    return '$text$_cursorSentinel';
-  }
-
-  static final _fenceLine = RegExp(r'^(?:>\s*)*(?:`{3,}|~{3,})\s*$');
 
   static InlineSpan _inlineCodeBuilder(BuildContext context, String code, TextStyle style, InlineCodeStyle codeStyle) =>
       CodeTextSpan(
@@ -655,7 +636,7 @@ class _MarkdownBodyState extends State<MarkdownBody> {
     }
     final source = _preparation?.prepare(widget.text) ?? prepare(widget.text);
     _repair = streaming ? (_repair ?? StreamingMarkdownRepair()) : null;
-    return _repair == null ? source : MarkdownBody._withCursor(_repair!.repair(source));
+    return _repair == null ? source : _repair!.repair(source, cursor: _cursorSentinel);
   }
 
   /// 这棵树里有没有 ProviderScope。只在依赖变化时向上找一次 —— 正文随流式
@@ -768,6 +749,9 @@ class _MarkdownBodyState extends State<MarkdownBody> {
         } else {
           _built.add(built);
         }
+      } else if (!identical(built.text, text)) {
+        // Keep the widget, and recognize the splitter's current string next time.
+        _built[i] = (text: text, live: live, widget: built.widget);
       }
       children.add(built.widget);
     }
@@ -835,6 +819,31 @@ class _MarkdownBodyState extends State<MarkdownBody> {
       child: MarkdownGalleryScope(child: markdown),
     );
   }
+}
+
+/// Content-sized like an intrinsic column, bounded by the chat's width limit.
+class _CappedIntrinsicColumnWidth extends TableColumnWidth {
+  const _CappedIntrinsicColumnWidth(this.limit);
+
+  final double limit;
+
+  double _widest(Iterable<RenderBox> cells, double Function(RenderBox) measure) {
+    var widest = 0.0;
+    for (final cell in cells) {
+      final width = measure(cell);
+      if (width >= limit) return limit;
+      if (width > widest) widest = width;
+    }
+    return widest;
+  }
+
+  @override
+  double minIntrinsicWidth(Iterable<RenderBox> cells, double containerWidth) =>
+      _widest(cells, (cell) => cell.getMinIntrinsicWidth(double.infinity));
+
+  @override
+  double maxIntrinsicWidth(Iterable<RenderBox> cells, double containerWidth) =>
+      _widest(cells, (cell) => cell.getMaxIntrinsicWidth(double.infinity));
 }
 
 /// A reply heading in the pack's heading style. A widget of its own, so it

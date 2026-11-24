@@ -111,13 +111,14 @@ class ModelDefaults {
   const ModelDefaults({
     this.contextWindow = piAiDefaultContextWindow,
     this.maxTokens = piAiDefaultMaxTokens,
-    this.input = const ['text'],
+    // Fork: new / empty models assume text+image unless the route says otherwise.
+    this.input = const ['text', 'image'],
   });
 
   factory ModelDefaults.of(ProviderProfile profile) => ModelDefaults(
     contextWindow: profile.defaultContextWindow ?? piAiDefaultContextWindow,
     maxTokens: profile.defaultMaxTokens ?? piAiDefaultMaxTokens,
-    input: (profile.defaultInput?.isNotEmpty ?? false) ? profile.defaultInput! : const ['text'],
+    input: (profile.defaultInput?.isNotEmpty ?? false) ? profile.defaultInput! : const ['text', 'image'],
   );
 
   final int contextWindow;

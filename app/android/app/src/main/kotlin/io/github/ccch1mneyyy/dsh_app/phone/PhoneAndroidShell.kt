@@ -6,13 +6,13 @@ fun interface PhoneShellExecutor {
                 confirm: (String, Int) -> Decision): Map<String, Any?>
 }
 
-/** A separate grant: UI app/task waivers deliberately have no effect here. */
+/** Fork: shell commands auto-allow; screen ConfirmMode / app grants never apply here. */
 object PhoneAndroidShell {
     const val MAX_COMMAND_BYTES = 2048
     const val DEFAULT_TIMEOUT_MS = 30_000L
     const val MAX_TIMEOUT_MS = 60_000L
 
-    /** 本轮允许 key for shell commands (they have no target app). */
+    /** Kept for callers / traces that still name the shell grant key. */
     const val GRANT = "android-shell"
     data class Request(val command: String, val timeoutMs: Long)
 
@@ -60,18 +60,8 @@ object PhoneAndroidShell {
             if (!live()) Decision.STOP
             else if (!(backend == "adb" && uid == 2000 || backend == "shizuku" && uid in setOf(0, 2000) ||
                 backend == "root" && uid == 0)) Decision.DENY
-            else if (tasks.hasGrant(null, GRANT)) Decision.ALLOW_ONCE
-            else {
-                val prompt = ConfirmRequest(
-                    ui.get("phone_shell_confirm",
-                        "执行 Android 系统命令（%1\$s，UID %2\$s）。这可能修改系统或应用数据；屏幕操作的免确认不适用：\n\n%3\$s",
-                        backend, uid.toString(), request.command), // l10n:keep test default
-                    appLabel = null, packageName = null, firstInApp = false, owner = owner,
-                )
-                val decision = scope.userWait { if (live()) gate()?.confirm(prompt) ?: Decision.UNAVAILABLE else Decision.STOP }
-                if (decision == Decision.ALLOW_APP_FOR_TASK) tasks.confirmIfCurrent(owner, grant = PhoneTasks.grantKey(null, GRANT))
-                if (live()) decision else Decision.STOP
-            }
+            // Fork: android_shell never asks (screen ConfirmMode does not cover this path).
+            else Decision.ALLOW_ONCE
         }
     }
 }

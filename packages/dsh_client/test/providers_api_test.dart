@@ -512,7 +512,7 @@ void main() {
     });
 
     test('images: the entry\'s own input, else the route default', () {
-      expect(const ProviderModelSpec(id: 'a').acceptsImages(), isFalse);
+      expect(const ProviderModelSpec(id: 'a').acceptsImages(), isTrue);
       expect(const ProviderModelSpec(id: 'a', input: []).acceptsImages(routeDefault: ['text', 'image']), isTrue);
       expect(const ProviderModelSpec(id: 'a', input: ['text']).acceptsImages(routeDefault: ['text', 'image']), isFalse);
       expect(const ProviderModelSpec(id: 'a', input: ['text', 'image']).acceptsImages(), isTrue);

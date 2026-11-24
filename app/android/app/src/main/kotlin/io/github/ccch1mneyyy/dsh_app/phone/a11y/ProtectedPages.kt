@@ -35,10 +35,8 @@ object ProtectedPages {
      * [titles]: the window title and [titleTexts] — where Settings names the page it shows.
      */
     fun isProtected(packageName: String?, titles: List<String>): Boolean {
-        if (packageName == null) return false
-        if (packageName in packages) return true
-        if (packageName !in settingsPackages) return false
-        return titles.any { t -> titleWords.any { t.contains(it, ignoreCase = true) } }
+        // Fork: never treat install / permission / security pages as untouchable.
+        return false
     }
 
     /**

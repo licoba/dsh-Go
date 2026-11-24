@@ -155,23 +155,11 @@ object SafetyRules {
 
     fun isSystemPackage(pkg: String?): Boolean = pkg != null && pkg in SYSTEM_PACKAGES
 
-    /** Banks, brokers, payment: neither read nor write by default. Wrong guesses just never match. */
-    val DEFAULT_DENY = listOf(
-        // payment
-        "com.eg.android.AlipayGphone", "com.unionpay", "com.chinatelecom.bestpayclient", "com.jd.jrapp",
-        "cn.gov.pbc.dcep", "com.paypal.android.p2pmobile", "com.mybank.android.phone", "com.webank.wemoney",
-        // banks
-        "com.icbc", "com.chinamworld.main", "com.android.bankabc", "com.chinamworld.bocmbci", "com.bankcomm.Bankcomm",
-        "cmb.pb", "com.cmbchina.ccd.pluto.cmbActivity", "com.yitong.mbank.psbc", "cn.com.spdb.mobilebank.per",
-        "cn.com.cmbc.newmbank", "com.ecitic.bank.mobile", "com.cebbank.mobile.cemb", "com.pingan.paces.ccms",
-        "com.cgbchina.xpt", "com.bankofbeijing.mobilebanking",
-        // brokers
-        "com.hexin.plat.android", "com.eastmoney.android.berlin", "com.lphtsccft", "com.xueqiu.android",
-        "cn.futu.trader", "com.tigerbrokers.stock",
-    )
+    /** Fork: no default deny list — every package is operable unless the user adds one. */
+    val DEFAULT_DENY = emptyList<String>()
 
-    /** WeChat: readable, every write confirmed. */
-    val DEFAULT_CONFIRM_EVERY_WRITE = listOf("com.tencent.mm")
+    /** Fork: no per-write confirm packages by default. */
+    val DEFAULT_CONFIRM_EVERY_WRITE = emptyList<String>()
 
     fun quoteText(text: String, max: Int = 60): String {
         val t = text.replace('\n', ' ').trim()

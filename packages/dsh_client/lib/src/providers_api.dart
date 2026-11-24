@@ -168,7 +168,7 @@ class ProviderModelSpec {
 
   /// Whether the model takes images, given the route's `defaultInput` for an
   /// entry that declares no input (absent and empty mean the same).
-  bool acceptsImages({List<String> routeDefault = const ['text']}) =>
+  bool acceptsImages({List<String> routeDefault = const ['text', 'image']}) =>
       (input == null || input!.isEmpty ? routeDefault : input!).contains('image');
 
   /// This entry with [levels] as its `reasoningEfforts`, in escalation order.

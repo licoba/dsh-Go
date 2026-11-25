@@ -26,7 +26,7 @@ enum ApkFlavor {
 /// No build number: GitHub rewrites `+` in asset names.
 String apkAssetName(AppVersion version, ApkFlavor flavor) => 'dsh-go-${version.name}-${flavor.name}.apk';
 
-final _apkAssetPattern = RegExp(r'^dsh-go-(.+)-(arm64|x64)\.apk$');
+final _apkAssetPattern = RegExp(r'^dsh-go-(?:fork-)?(.+)-(arm64|x64)\.apk$');
 
 /// What a manifest may name a file: it becomes a path in the download
 /// directory, so nothing that climbs out of it.
@@ -189,13 +189,22 @@ String? normalizeSha256(Object? value) {
   return RegExp(r'^[0-9a-f]{64}$').hasMatch(hex) ? hex : null;
 }
 
+/// Parses either a standard `v1.3.0` tag or a fork `fork-v1.3.0-b12-abcdef0` tag.
+AppVersion? _parseReleaseTag(String tag) {
+  final direct = AppVersion.tryParse(tag);
+  if (direct != null) return direct;
+  final m = RegExp(r'^fork-[vV]?(\d+\.\d+(?:\.\d+)?)-b(\d+)(?:-[0-9A-Za-z]+)?$').firstMatch(tag.trim());
+  if (m == null) return null;
+  return AppVersion.tryParse(m.group(1))?.withBuild(int.tryParse(m.group(2)!));
+}
+
 /// Parses a GitHub `releases/latest` body. Throws [FormatException] when it
 /// isn't a usable release (draft, unparsable tag).
 ReleaseInfo parseGithubRelease(Object? json) {
   if (json is! Map) throw const FormatException('release is not an object');
   if (json['draft'] == true) throw const FormatException('draft release');
   final tag = json['tag_name'];
-  final version = tag is String ? AppVersion.tryParse(tag) : null;
+  final version = tag is String ? _parseReleaseTag(tag) : null;
   if (version == null) throw FormatException('unrecognised tag: $tag');
   final apks = <ApkFlavor, ReleaseAsset>{};
   Uri? checksums;

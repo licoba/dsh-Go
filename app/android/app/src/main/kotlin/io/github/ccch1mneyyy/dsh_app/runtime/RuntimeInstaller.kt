@@ -137,6 +137,7 @@ class RuntimeInstaller(
                     }
                     val expected = archive.sha256
                     if (expected != null && !expected.equals(actualSha, ignoreCase = true)) {
+                        downloaded.delete()
                         staging.deleteRecursivelySafely()
                         throw IllegalStateException(AppStrings.get(context, R.string.service_package_checksum_failed))
                     }
@@ -158,9 +159,11 @@ class RuntimeInstaller(
                             }
                         }
                     }
-                } finally {
                     downloaded.delete()
                     downloadDir.delete()
+                } catch (e: Exception) {
+                    // Keep partial download for HTTP Range resume on the next retry.
+                    throw e
                 }
             }
             completed += totals[index]
@@ -206,8 +209,41 @@ class RuntimeInstaller(
     }
 
     private fun downloadArchive(url: String, dest: File, expectedBytes: Long, onRead: (Long) -> Unit): String {
-        dest.delete()
-        onLog("[dsh-app] downloading runtime: $url")
+        val maxAttempts = 3
+        var lastError: Exception? = null
+        for (attempt in 1..maxAttempts) {
+            try {
+                downloadWithResume(url, dest, expectedBytes, onRead)
+                val sha = sha256Of(dest)
+                return sha
+            } catch (e: Exception) {
+                lastError = e
+                onLog("[dsh-app] runtime download attempt $attempt/$maxAttempts failed: ${e.message}")
+                if (attempt < maxAttempts) {
+                    try {
+                        Thread.sleep(2_000L * attempt)
+                    } catch (_: InterruptedException) {
+                        Thread.currentThread().interrupt()
+                        throw e
+                    }
+                }
+            }
+        }
+        throw lastError ?: IOException("failed to download runtime from $url")
+    }
+
+    private fun downloadWithResume(url: String, dest: File, expectedBytes: Long, onRead: (Long) -> Unit) {
+        var existing = if (dest.isFile) dest.length() else 0L
+        if (expectedBytes > 0 && existing > expectedBytes) {
+            dest.delete()
+            existing = 0L
+        }
+        if (expectedBytes > 0 && existing == expectedBytes) {
+            onLog("[dsh-app] reusing complete downloaded runtime archive ($existing bytes)")
+            onRead(existing)
+            return
+        }
+        onLog("[dsh-app] downloading runtime: $url (resume offset: $existing)")
         var current = url
         var redirects = 0
         while (true) {
@@ -216,6 +252,7 @@ class RuntimeInstaller(
                 connectTimeout = 30_000
                 readTimeout = 60_000
                 setRequestProperty("User-Agent", "dsh-go-android")
+                if (existing > 0L) setRequestProperty("Range", "bytes=$existing-")
             }
             try {
                 val code = conn.responseCode
@@ -226,13 +263,21 @@ class RuntimeInstaller(
                     current = URL(URL(current), next).toString()
                     continue
                 }
-                if (code != HttpURLConnection.HTTP_OK) {
+                if (code == 416 && existing > 0L) {
+                    dest.delete()
+                    existing = 0L
+                    current = url
+                    redirects = 0
+                    continue
+                }
+                val append = existing > 0L && code == HttpURLConnection.HTTP_PARTIAL
+                if (code != HttpURLConnection.HTTP_OK && !append) {
                     throw IOException("HTTP $code downloading runtime from $current")
                 }
-                val digest = MessageDigest.getInstance("SHA-256")
-                var totalRead = 0L
-                DigestInputStream(conn.inputStream, digest).use { input ->
-                    FileOutputStream(dest).use { output ->
+                var totalRead = if (append) existing else 0L
+                if (totalRead > 0L) onRead(totalRead)
+                conn.inputStream.use { input ->
+                    FileOutputStream(dest, append).use { output ->
                         val buffer = ByteArray(1 shl 16)
                         while (true) {
                             val n = input.read(buffer)
@@ -247,11 +292,20 @@ class RuntimeInstaller(
                 if (expectedBytes > 0 && totalRead != expectedBytes) {
                     throw IOException("incomplete runtime download: got $totalRead bytes, expected $expectedBytes")
                 }
-                return digest.digest().joinToString("") { "%02x".format(it) }
+                return
             } finally {
                 conn.disconnect()
             }
         }
+    }
+
+    private fun sha256Of(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        DigestInputStream(file.inputStream(), digest).use { input ->
+            val buffer = ByteArray(1 shl 16)
+            while (input.read(buffer) >= 0) {}
+        }
+        return digest.digest().joinToString("") { "%02x".format(it) }
     }
 
     /** Deletes the runtime; [keep] (paths under the rootfs) waits in runtime-keep for the next install. */

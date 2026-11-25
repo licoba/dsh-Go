@@ -40,6 +40,30 @@ class ApkInstaller(private val context: Context) {
         )
     }
 
+    private fun tryInstallWithRoot(apk: File): Boolean {
+        val size = apk.length()
+        if (size <= 0L) return false
+        return try {
+            val pkg = context.packageName
+            // Schedule relaunch before pm install replaces this process, and stream APK via stdin.
+            val proc = ProcessBuilder(
+                "su", "-c",
+                "pm install -r -d --user 0 -S $size && (sleep 1; monkey -p '$pkg' -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1) &",
+            ).redirectErrorStream(true).start()
+            proc.outputStream.use { out ->
+                apk.inputStream().use { input ->
+                    input.copyTo(out, 1 shl 16)
+                    out.flush()
+                }
+            }
+            val output = proc.inputStream.bufferedReader().use { it.readText() }
+            val code = proc.waitFor()
+            code == 0 && output.contains("Success", ignoreCase = true)
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     /** Android 8+: the per-app "install unknown apps" switch. */
     fun canRequestInstalls(): Boolean =
         Build.VERSION.SDK_INT < Build.VERSION_CODES.O || pm.canRequestPackageInstalls()
@@ -84,6 +108,9 @@ class ApkInstaller(private val context: Context) {
      * Runs on the caller's thread (not the main one: the copy takes seconds).
      */
     fun install(apk: File, confirm: (Intent) -> Boolean, onResult: (Map<String, Any?>) -> Unit) {
+        if (tryInstallWithRoot(apk)) {
+            return onResult(result("success", null))
+        }
         val installer = pm.packageInstaller
         val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL).apply {
             setAppPackageName(context.packageName)

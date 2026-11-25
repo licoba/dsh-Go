@@ -44,11 +44,12 @@ ThemeData buildLightTheme({
 }) => _build(
   applyThemePackScheme(DshPalette.lightScheme(accent), themePack),
   applyThemePackColors(DshColors.forAccent(Brightness.light, accent), themePack, Brightness.light),
+  // Fork: disable real-time BackdropFilter glass blur globally for smoother Android scrolling.
   applyThemePackSurfaces(
-    DshSurfaces.light(accent, blurEnabled: glassBlur),
+    DshSurfaces.light(accent, blurEnabled: false),
     themePack,
     Brightness.light,
-    blurEnabled: glassBlur,
+    blurEnabled: false,
   ),
   accent,
   glyphLocale,
@@ -70,11 +71,12 @@ ThemeData buildDarkTheme({
 }) => _build(
   applyThemePackScheme(DshPalette.darkScheme(accent), themePack),
   applyThemePackColors(DshColors.forAccent(Brightness.dark, accent), themePack, Brightness.dark),
+  // Fork: disable real-time BackdropFilter glass blur globally for smoother Android scrolling.
   applyThemePackSurfaces(
-    DshSurfaces.dark(accent, blurEnabled: glassBlur),
+    DshSurfaces.dark(accent, blurEnabled: false),
     themePack,
     Brightness.dark,
-    blurEnabled: glassBlur,
+    blurEnabled: false,
   ),
   accent,
   glyphLocale,

@@ -20,8 +20,8 @@
 ///   replaces the public GitHub accelerator list (empty string = none).
 library;
 
-/// GitHub repository the releases live in.
-const updateRepo = 'ccch1mneyyy/dsh-go';
+/// GitHub repository the releases live in (Fork releases with fixed signing key).
+const updateRepo = 'licoba/dsh-Go';
 
 /// `releases/latest` of the REST API: tag, notes, assets with sizes and
 /// SHA-256 digests. Unauthenticated: 60 requests per hour per IP.
@@ -145,7 +145,8 @@ const publicMirrors = [
 ];
 
 const _unset = '\u0000';
-const _mirrorDefine = String.fromEnvironment('DSH_UPDATE_MIRROR', defaultValue: updateDownloadOrigin);
+// Fork: disable upstream R2 mirror by default; fetch update.json and APKs from licoba/dsh-Go releases.
+const _mirrorDefine = String.fromEnvironment('DSH_UPDATE_MIRROR', defaultValue: '');
 const _feedDefine = String.fromEnvironment('DSH_UPDATE_FEED', defaultValue: _unset);
 const _mirrorsDefine = String.fromEnvironment('DSH_UPDATE_MIRRORS', defaultValue: _unset);
 const _betaTokenDefine = String.fromEnvironment('DSH_BETA_CHANNEL_TOKEN');

@@ -293,9 +293,42 @@ jobs:
             echo "- 新建模型默认支持文本 + 图片"
           } > "$notes_file"
 
-          gh release create "$tag" "$RUNNER_TEMP/$apk_name" \
+          release_title="DSH Go Fork v${app_ver} · #${GITHUB_RUN_NUMBER} · ${short_sha} — ${head_summary}"
+          aapt2="$(ls -1d "$ANDROID_HOME"/build-tools/*/aapt2 2>/dev/null | sort -V | tail -n 1 || true)"
+          ver_code=""
+          if [ -n "$aapt2" ]; then
+            ver_code="$("$aapt2" dump badging "$RUNNER_TEMP/$apk_name" 2>/dev/null | sed -nE "s/.*versionCode='([0-9]+)'.*/\1/p" | head -n1 || true)"
+          fi
+          ver_code="${ver_code:-$(python3 tooling/build_number.py)}"
+          apk_bytes="$(stat -c %s "$RUNNER_TEMP/$apk_name")"
+          update_json="$RUNNER_TEMP/update.json"
+          python3 - "$update_json" "$app_ver" "$ver_code" "$tag" "$release_title" "$notes_file" "$GITHUB_REPOSITORY" "$apk_name" "$apk_bytes" "$sha256" <<'PY'
+          import datetime, json, sys
+          from pathlib import Path
+          out, app_ver, ver_code, tag, title, notes_path, repo, apk_name, apk_bytes, sha256 = sys.argv[1:11]
+          manifest = {
+              "schema": 1,
+              "version": f"{app_ver}+{ver_code}",
+              "tag": tag,
+              "title": title,
+              "publishedAt": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+              "notes": Path(notes_path).read_text(encoding="utf-8"),
+              "page": f"https://github.com/{repo}/releases/tag/{tag}",
+              "assets": {
+                  "arm64": {
+                      "name": apk_name,
+                      "url": f"https://github.com/{repo}/releases/download/{tag}/{apk_name}",
+                      "size": int(apk_bytes),
+                      "sha256": sha256,
+                  },
+              },
+          }
+          Path(out).write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+          PY
+
+          gh release create "$tag" "$RUNNER_TEMP/$apk_name" "$update_json" \
             --latest \
-            --title "DSH Go Fork v${app_ver} · #${GITHUB_RUN_NUMBER} · ${short_sha} — ${head_summary}" \
+            --title "$release_title" \
             --notes-file "$notes_file"
 
       - name: Publish failure log

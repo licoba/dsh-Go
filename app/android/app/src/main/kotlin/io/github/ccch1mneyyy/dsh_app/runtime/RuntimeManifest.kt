@@ -8,6 +8,7 @@ data class RuntimeArchive(
     val bytes: Long,
     val sha256: String?,
     val uncompressedBytes: Long,
+    val downloadUrl: String? = null,
 )
 
 /**
@@ -43,7 +44,8 @@ data class RuntimeManifest(
             if (schema == 1 && json.has("layers")) throw RuntimeUpgradeBlocked("manifest")
             val archives = when (schema) {
                 1 -> listOf(RuntimeArchive(json.getString("rootfs"), json.optLong("rootfsBytes", -1L),
-                    json.optString("rootfsSha256").ifEmpty { null }, json.optLong("uncompressedBytes", -1L)))
+                    json.optString("rootfsSha256").ifEmpty { null }, json.optLong("uncompressedBytes", -1L),
+                    json.optString("rootfsUrl").ifEmpty { null }))
                 2 -> try {
                     require(!json.has("rootfs") && !json.has("rootfsSha256") && !json.has("rootfsFormat"))
                     val abi = json.getString("abi")
@@ -54,7 +56,8 @@ data class RuntimeManifest(
                         val digest = layer.getString("sha256")
                         val tarDigest = layer.getString("tarSha256")
                         RuntimeArchive(layer.getString("asset"), layer.getLong("bytes"),
-                            digest, layer.getLong("uncompressedBytes")).also {
+                            digest, layer.getLong("uncompressedBytes"),
+                            layer.optString("downloadUrl").ifEmpty { null }).also {
                             require(it.bytes > 0 && it.uncompressedBytes >= 0 &&
                                 layer.getLong("tarBytes") >= 0 &&
                                 it.asset in listOf("$name-$abi.tar.xz", "$name-$abi.tar.gz") &&

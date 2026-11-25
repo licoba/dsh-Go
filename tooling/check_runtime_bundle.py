@@ -52,7 +52,8 @@ def check_bundle(flavor):
         if "layers" in manifest:
             raise ValueError(f"{manifest_path}: schema 1 must not contain layers")
         archives = [("rootfs", {"asset": manifest["rootfs"],
-                     "bytes": manifest["rootfsBytes"], "sha256": manifest["rootfsSha256"]})]
+                     "bytes": manifest["rootfsBytes"], "sha256": manifest["rootfsSha256"],
+                     "downloadUrl": manifest.get("rootfsUrl")})]
     else:
         if any(key in manifest for key in ("rootfs", "rootfsSha256", "rootfsFormat")):
             raise ValueError(f"{manifest_path}: schema 2 must not contain a single rootfs archive")
@@ -66,7 +67,15 @@ def check_bundle(flavor):
         name = archive["asset"]
         if name not in (f"{kind}-{abi}.tar.xz", f"{kind}-{abi}.tar.gz"):
             raise ValueError(f"{manifest_path}: invalid {kind} asset name for {abi}")
-        check_file(assets / name, archive["bytes"], archive["sha256"])
+        local_path = assets / name
+        remote_url = archive.get("downloadUrl")
+        if not local_path.is_file() and isinstance(remote_url, str) and remote_url.startswith("https://"):
+            if type(archive["bytes"]) is not int or archive["bytes"] <= 0:
+                raise ValueError(f"invalid manifest byte count for remote {name}")
+            if not isinstance(archive["sha256"], str) or re.fullmatch(r"[0-9a-f]{64}", archive["sha256"]) is None:
+                raise ValueError(f"invalid manifest sha256 for remote {name}")
+        else:
+            check_file(local_path, archive["bytes"], archive["sha256"])
     jni = manifest["jniLibs"]
     if not isinstance(jni, dict):
         raise ValueError(f"{manifest_path}: invalid jniLibs record")

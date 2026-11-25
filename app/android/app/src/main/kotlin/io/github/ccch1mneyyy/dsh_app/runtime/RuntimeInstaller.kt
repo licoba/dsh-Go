@@ -5,12 +5,17 @@ import io.github.ccch1mneyyy.dsh_app.R
 import android.content.Context
 import android.content.res.AssetManager
 import java.io.File
+import java.io.FileOutputStream
+import java.io.IOException
+import java.net.HttpURLConnection
+import java.net.URL
 import java.nio.channels.FileChannel
 import java.nio.file.Files
 import java.nio.file.StandardOpenOption
 import java.security.DigestInputStream
 import java.security.MessageDigest
 import org.json.JSONObject
+import org.tukaani.xz.SeekableFileInputStream
 
 /**
  * Unpacks the bundled rootfs into app-private storage.
@@ -73,6 +78,7 @@ class RuntimeInstaller(
         staging.mkdirs()
 
         val assetLengths = archives.map { assetLength("${RuntimeManifest.ASSET_DIR}/${it.asset}") }
+        val bundled = archives.map { hasBundledAsset("${RuntimeManifest.ASSET_DIR}/${it.asset}") }
         val totals = archives.mapIndexed { i, archive -> assetLengths[i].takeIf { it > 0 } ?: archive.bytes }
         val total = totals.sum()
         onLog("[dsh-app] install assets: ${archives.joinToString { it.asset }} ($total compressed bytes)")
@@ -87,31 +93,74 @@ class RuntimeInstaller(
                     onProgress(aggregate, total)
                 }
             }
-            timed("verify") {
-                // Parallel readers revisit compressed bytes; hash each selected asset once, in order.
-                val digest = MessageDigest.getInstance("SHA-256")
-                DigestInputStream(context.assets.open(assetPath, AssetManager.ACCESS_STREAMING), digest).use { input ->
-                    val buffer = ByteArray(1 shl 16)
-                    while (input.read(buffer) >= 0) {}
-                }
-                val actual = digest.digest().joinToString("") { "%02x".format(it) }
-                val expected = archive.sha256
-                if (expected != null && !expected.equals(actual, ignoreCase = true)) {
-                    staging.deleteRecursivelySafely()
-                    throw IllegalStateException(AppStrings.get(context, R.string.service_package_checksum_failed))
-                }
-            }
-            timed("extract") {
-                val extractor = TarExtractor(staging, progress)
-                if (archive.asset.endsWith(".xz") && assetLengths[index] > 0) {
-                    val decoded = ParallelXZInputStream.open(
-                        { AssetSeekableInputStream(context.assets.openFd(assetPath)) }, progress,
-                    )
-                    extractor.extractDecoded(decoded)
-                } else {
-                    context.assets.open(assetPath, AssetManager.ACCESS_STREAMING).use { raw ->
-                        extractor.extract(raw, archive.asset)
+            if (bundled[index]) {
+                timed("verify") {
+                    // Parallel readers revisit compressed bytes; hash each selected asset once, in order.
+                    val digest = MessageDigest.getInstance("SHA-256")
+                    DigestInputStream(context.assets.open(assetPath, AssetManager.ACCESS_STREAMING), digest).use { input ->
+                        val buffer = ByteArray(1 shl 16)
+                        while (input.read(buffer) >= 0) {}
                     }
+                    val actual = digest.digest().joinToString("") { "%02x".format(it) }
+                    val expected = archive.sha256
+                    if (expected != null && !expected.equals(actual, ignoreCase = true)) {
+                        staging.deleteRecursivelySafely()
+                        throw IllegalStateException(AppStrings.get(context, R.string.service_package_checksum_failed))
+                    }
+                }
+                timed("extract") {
+                    val extractor = TarExtractor(staging, progress)
+                    if (archive.asset.endsWith(".xz") && assetLengths[index] > 0) {
+                        val decoded = ParallelXZInputStream.open(
+                            { AssetSeekableInputStream(context.assets.openFd(assetPath)) }, progress,
+                        )
+                        extractor.extractDecoded(decoded)
+                    } else {
+                        context.assets.open(assetPath, AssetManager.ACCESS_STREAMING).use { raw ->
+                            extractor.extract(raw, archive.asset)
+                        }
+                    }
+                }
+            } else {
+                val url = archive.downloadUrl
+                    ?: throw IllegalStateException("missing bundled runtime asset ${archive.asset} and no downloadUrl")
+                val downloadDir = File(baseDir, "downloads").apply { mkdirs() }
+                val downloaded = File(downloadDir, "${archive.asset}.part")
+                try {
+                    val actualSha = timed("download") {
+                        downloadArchive(url, downloaded, archive.bytes) { read ->
+                            // Map download to the first half of this archive's progress span.
+                            val half = totals[index] / 2L
+                            val mapped = if (archive.bytes > 0) (read * half) / archive.bytes else 0L
+                            progress(mapped.coerceIn(0L, half))
+                        }
+                    }
+                    val expected = archive.sha256
+                    if (expected != null && !expected.equals(actualSha, ignoreCase = true)) {
+                        staging.deleteRecursivelySafely()
+                        throw IllegalStateException(AppStrings.get(context, R.string.service_package_checksum_failed))
+                    }
+                    timed("extract") {
+                        val half = totals[index] / 2L
+                        val extractProgress: (Long) -> Unit = { read ->
+                            val mapped = half + if (totals[index] > 0) (read * (totals[index] - half)) / totals[index] else 0L
+                            progress(mapped.coerceIn(half, totals[index]))
+                        }
+                        val extractor = TarExtractor(staging, extractProgress)
+                        if (archive.asset.endsWith(".xz")) {
+                            val decoded = ParallelXZInputStream.open(
+                                { SeekableFileInputStream(downloaded) }, extractProgress,
+                            )
+                            extractor.extractDecoded(decoded)
+                        } else {
+                            downloaded.inputStream().use { raw ->
+                                extractor.extract(raw, archive.asset)
+                            }
+                        }
+                    }
+                } finally {
+                    downloaded.delete()
+                    downloadDir.delete()
                 }
             }
             completed += totals[index]
@@ -139,11 +188,69 @@ class RuntimeInstaller(
     }
 
     private fun checkFreeSpace(archives: List<RuntimeArchive>) {
-        val need = requiredRuntimeInstallSpace(archives)
+        val downloadExtra = archives
+            .filter { !hasBundledAsset("${RuntimeManifest.ASSET_DIR}/${it.asset}") && it.bytes > 0 }
+            .maxOfOrNull { it.bytes } ?: 0L
+        val need = requiredRuntimeInstallSpace(archives) + downloadExtra
         val free = context.filesDir.usableSpace
         if (free < need) {
             val mb = { b: Long -> b / (1024 * 1024) }
             throw IllegalStateException(AppStrings.get(context, R.string.service_storage_insufficient, mb(need), mb(free)))
+        }
+    }
+
+    private fun hasBundledAsset(path: String): Boolean = try {
+        context.assets.open(path).use { true }
+    } catch (_: Exception) {
+        false
+    }
+
+    private fun downloadArchive(url: String, dest: File, expectedBytes: Long, onRead: (Long) -> Unit): String {
+        dest.delete()
+        onLog("[dsh-app] downloading runtime: $url")
+        var current = url
+        var redirects = 0
+        while (true) {
+            val conn = (URL(current).openConnection() as HttpURLConnection).apply {
+                instanceFollowRedirects = false
+                connectTimeout = 30_000
+                readTimeout = 60_000
+                setRequestProperty("User-Agent", "dsh-go-android")
+            }
+            try {
+                val code = conn.responseCode
+                if (code in listOf(301, 302, 303, 307, 308)) {
+                    val next = conn.getHeaderField("Location")
+                        ?: throw IOException("redirect $code without Location for $current")
+                    if (++redirects > 6) throw IOException("too many redirects downloading $url")
+                    current = URL(URL(current), next).toString()
+                    continue
+                }
+                if (code != HttpURLConnection.HTTP_OK) {
+                    throw IOException("HTTP $code downloading runtime from $current")
+                }
+                val digest = MessageDigest.getInstance("SHA-256")
+                var totalRead = 0L
+                DigestInputStream(conn.inputStream, digest).use { input ->
+                    FileOutputStream(dest).use { output ->
+                        val buffer = ByteArray(1 shl 16)
+                        while (true) {
+                            val n = input.read(buffer)
+                            if (n < 0) break
+                            output.write(buffer, 0, n)
+                            totalRead += n
+                            onRead(totalRead)
+                        }
+                        output.fd.sync()
+                    }
+                }
+                if (expectedBytes > 0 && totalRead != expectedBytes) {
+                    throw IOException("incomplete runtime download: got $totalRead bytes, expected $expectedBytes")
+                }
+                return digest.digest().joinToString("") { "%02x".format(it) }
+            } finally {
+                conn.disconnect()
+            }
         }
     }
 

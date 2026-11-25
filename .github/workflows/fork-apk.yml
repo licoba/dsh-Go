@@ -22,14 +22,13 @@ on:
 permissions:
   contents: write
 
-concurrency:
-  group: fork-apk-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   apk:
     runs-on: ubuntu-24.04
     timeout-minutes: 150
+    concurrency:
+      group: fork-apk-main
+      cancel-in-progress: true
     env:
       FLUTTER_VERSION: 3.47.7
       LOG_TAG: fork-log-${{ github.run_number }}
@@ -102,6 +101,68 @@ jobs:
         run: |
           set -o pipefail
           runtime/build-runtime.sh arm64-v8a 2>&1 | tee -a "$RUNNER_TEMP/build.log"
+
+      - name: Externalize runtime archive (slim APK)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          CACHE_TAG="runtime-cache"
+          if ! gh release view "$CACHE_TAG" >/dev/null 2>&1; then
+            gh release create "$CACHE_TAG" \
+              --prerelease \
+              --title "DSH Go Runtime Cache (auto-synced)" \
+              --notes "Content-addressed Linux runtime archives auto-synced from upstream builds and downloaded on demand by slim Fork APKs."
+          fi
+
+          EXISTING_ASSETS="$(gh release view "$CACHE_TAG" --json assets --jq '.assets[].name' 2>/dev/null || true)"
+          python3 - "$CACHE_TAG" "$GITHUB_REPOSITORY" "$EXISTING_ASSETS" <<'PY'
+          import json, os, shutil, subprocess, sys
+          from pathlib import Path
+
+          cache_tag, repo, existing_raw = sys.argv[1], sys.argv[2], sys.argv[3]
+          existing = set(line.strip() for line in existing_raw.splitlines() if line.strip())
+          assets_dir = Path("runtime/out/arm64-v8a/assets/runtime")
+          manifest_path = assets_dir / "manifest.json"
+          manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+          schema = manifest.get("schema", 1)
+
+          def publish_archive(asset_name: str, sha256: str) -> str:
+              src = assets_dir / asset_name
+              assert src.is_file(), f"missing built runtime archive: {src}"
+              if asset_name.endswith(".tar.xz"):
+                  stem, ext = asset_name[:-7], ".tar.xz"
+              elif asset_name.endswith(".tar.gz"):
+                  stem, ext = asset_name[:-7], ".tar.gz"
+              else:
+                  stem, ext = os.path.splitext(asset_name)
+              remote_name = f"{stem}-{sha256[:12]}{ext}"
+              if remote_name in existing:
+                  print(f"[slim-apk] runtime archive already cached: {remote_name}")
+              else:
+                  staged = Path(os.environ["RUNNER_TEMP"]) / remote_name
+                  shutil.copy2(src, staged)
+                  print(f"[slim-apk] uploading new runtime archive: {remote_name}")
+                  subprocess.run(
+                      ["gh", "release", "upload", cache_tag, str(staged), "--clobber"],
+                      check=True,
+                  )
+                  staged.unlink(missing_ok=True)
+              src.unlink()
+              return f"https://github.com/{repo}/releases/download/{cache_tag}/{remote_name}"
+
+          if schema == 1:
+              manifest["rootfsUrl"] = publish_archive(manifest["rootfs"], manifest["rootfsSha256"])
+          elif schema == 2:
+              for layer_name in ("base", "engine"):
+                  layer = manifest["layers"][layer_name]
+                  layer["downloadUrl"] = publish_archive(layer["asset"], layer["sha256"])
+          else:
+              raise SystemExit(f"unsupported runtime manifest schema: {schema}")
+
+          manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+          print(f"[slim-apk] updated {manifest_path}")
+          PY
 
       - name: App dependencies
         working-directory: app

@@ -175,11 +175,8 @@ ThemeData _build(
     extensions: [colors, surfaces, themeStyle],
     pageTransitionsTheme: transitions,
     visualDensity: VisualDensity.standard,
-    // 水波保留但更含蓄。
-    // iOS 的控件按下只变一层底色,没有水波。
-    splashFactory: fluid
-        ? AppInkGlow.splashFactory
-        : (defaultTargetPlatform == TargetPlatform.iOS ? NoSplash.splashFactory : null),
+    // Fork: use standard native ripple instead of custom AppInkGlow particle splash.
+    splashFactory: defaultTargetPlatform == TargetPlatform.iOS ? NoSplash.splashFactory : null,
     splashColor: scheme.primary.withValues(alpha: 0.08),
     highlightColor: scheme.primary.withValues(alpha: 0.04),
     hoverColor: scheme.onSurface.withValues(alpha: 0.04),

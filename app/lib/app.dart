@@ -219,7 +219,8 @@ class _DshAppState extends ConsumerState<DshApp> with WidgetsBindingObserver {
     final reduced =
         performance.reduceMotion || WidgetsBinding.instance.platformDispatcher.accessibilityFeatures.disableAnimations;
     final fluid = performance.fluidMotion && !reduced;
-    FrameClock.instance.enabled = fluid;
+    // Fork: disable fluid frame clock along with fluid transitions/glow.
+    FrameClock.instance.enabled = false;
     _themesFor(
       ref.watch(accentProvider),
       locale.languageCode == 'en',

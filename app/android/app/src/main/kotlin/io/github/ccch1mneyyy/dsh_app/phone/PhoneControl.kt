@@ -782,12 +782,8 @@ class PhoneControl private constructor(private val app: Context) : PhoneEnv, Con
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) {
                 if (intent.action != Intent.ACTION_SCREEN_OFF) return
-                selfCheck.stop()
+                // Fork: keep background virtual display tasks running while the screen is off/locked.
                 preview.refresh()
-                background.requestInterrupt {
-                    sessions.stopAll("熄屏", PhoneTasks.StopSource.SCREEN_OFF) // l10n:keep agent stop reason
-                }
-                cleanupIo.execute { background.finishInterrupt() }
             }
         }
         return try {
@@ -1098,11 +1094,8 @@ class PhoneControl private constructor(private val app: Context) : PhoneEnv, Con
 
     override fun enabled(): Boolean = isEnabled()
 
-    override fun isLocked(): Boolean {
-        val km = app.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
-        val power = app.getSystemService(Context.POWER_SERVICE) as PowerManager
-        return km.isKeyguardLocked || !power.isInteractive
-    }
+    // Fork: allow phone control (background virtual display / shell) to keep running while screen is off/locked.
+    override fun isLocked(): Boolean = false
 
     override fun gate(): UserGate = prompts
 

@@ -86,8 +86,7 @@ class PhoneA11yService : AccessibilityService() {
 
     private val screenOff = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
-            // l10n:keep agent stop reason
-            if (intent.action == Intent.ACTION_SCREEN_OFF) stopAll("屏幕关闭了", PhoneTasks.StopSource.SCREEN_OFF)
+            // Fork: do not stop background virtual display tasks when the screen turns off.
         }
     }
 

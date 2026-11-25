@@ -314,7 +314,7 @@ class PrivilegedDisplayCore internal constructor(
         }
         if (strictOwner && displayApiReleased) throw Fault("releasePending")
         if (strictOwner && (readerAllocationUncertain || display == null && (displayCreationAttempted || reader != null || pendingReader != null))) throw Fault("releaseUnconfirmed")
-        if (keyguard?.isKeyguardLocked == true) throw Fault("locked")
+        // Fork: allow background virtual display actions while device is locked.
         val pkg = request.getString(Proto.PKG).orEmpty()
         if (!PACKAGE.matches(pkg)) throw Fault("invalidArguments")
         val opening = op == Proto.OP_CREATE || op == Proto.OP_LAUNCH
@@ -435,7 +435,6 @@ class PrivilegedDisplayCore internal constructor(
         if (owner != parsed.owner || !strictOwner || selfCheckOwner) throw Fault("identityChanged")
         sequence.enter(parsed)?.let { throw Fault(it) }
         if (Build.VERSION.SDK_INT < 34) throw Fault("targetUnavailable")
-        if (keyguard?.isKeyguardLocked == true) throw Fault("locked")
         when (parsed.step) {
             SelfCheckTargetRequest.Step.CREATE -> {
                 targetMain?.sample(SelfCheckMainSamples.Slot.BEFORE_CREATE)?.let { writeMainSample(it, response) }
@@ -614,7 +613,6 @@ class PrivilegedDisplayCore internal constructor(
         val actual = display?.display ?: throw Fault("displayMissing")
         if (!actual.isValid || actual.displayId <= Display.DEFAULT_DISPLAY || targetSequence == null)
             throw Fault("targetChanged")
-        if (keyguard?.isKeyguardLocked == true) throw Fault("locked")
         val rows = rootTasksMethod.invoke(taskManager, actual.displayId) as? List<*> ?: throw Fault("targetUnavailable")
         if (rows.any { !rootTaskInfoType.isInstance(it) }) throw Fault("targetUnavailable")
         if (rows.isEmpty()) throw Fault("targetUnavailable")
@@ -695,7 +693,6 @@ class PrivilegedDisplayCore internal constructor(
         displayCreationAttempted = false
         displayApiReleased = false
         visualObservation = null
-        if (keyguard?.isKeyguardLocked == true) throw Fault("locked")
         createDisplay(Bundle().apply {
             putInt(Proto.SHORT_SIDE, 360)
             putInt(Proto.ASPECT_W, 9)
@@ -1792,7 +1789,6 @@ class PrivilegedDisplayCore internal constructor(
 
     private fun navigationIdentity(expected: PhoneAppIdentity, app: BackgroundNavigationProtocol.Installation): Map<String, String> {
         if (Thread.currentThread().isInterrupted) throw InterruptedException()
-        if (keyguard?.isKeyguardLocked == true) throw Fault("locked")
         requireShown(expected.packageName, expected.uid)
         // A recorded route replays only on the exact install it was recorded on.
         val installed = io.github.ccch1mneyyy.dsh_app.phone.a11y.MarkorNavigation.installed(privileged)

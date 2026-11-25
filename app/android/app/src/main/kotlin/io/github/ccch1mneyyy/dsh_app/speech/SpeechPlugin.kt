@@ -227,7 +227,8 @@ class SpeechPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHandl
         endCall()
         mic = MicArbiter.beginDictation()
         val marks = NativeTrial.marks(context.getSharedPreferences("speech_native", Context.MODE_PRIVATE))
-        val c = CallCapture(main, captureListener) { SpeechGates.create(context.assets, it, marks) }
+        val speechCache = java.io.File(context.filesDir, "speech-models")
+        val c = CallCapture(main, captureListener) { SpeechGates.create(context.assets, it, marks, speechCache) }
         c.bargeIn = bargeIn
         c.pause = pause
         val am = audio

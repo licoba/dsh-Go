@@ -102,7 +102,7 @@ jobs:
           set -o pipefail
           runtime/build-runtime.sh arm64-v8a 2>&1 | tee -a "$RUNNER_TEMP/build.log"
 
-      - name: Externalize runtime archive (slim APK)
+      - name: Externalize runtime & speech models (slim APK)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -112,22 +112,42 @@ jobs:
             gh release create "$CACHE_TAG" \
               --prerelease \
               --title "DSH Go Runtime Cache (auto-synced)" \
-              --notes "Content-addressed Linux runtime archives auto-synced from upstream builds and downloaded on demand by slim Fork APKs."
+              --notes "Content-addressed Linux runtime archives and speech ONNX models auto-synced from upstream builds and downloaded on demand by slim Fork APKs."
           fi
 
-          EXISTING_ASSETS="$(gh release view "$CACHE_TAG" --json assets --jq '.assets[].name' 2>/dev/null || true)"
-          python3 - "$CACHE_TAG" "$GITHUB_REPOSITORY" "$EXISTING_ASSETS" <<'PY'
-          import json, os, shutil, subprocess, sys
+          EXISTING_JSON="$(gh release view "$CACHE_TAG" --json assets 2>/dev/null || echo '{"assets":[]}')"
+          python3 - "$CACHE_TAG" "$GITHUB_REPOSITORY" "$EXISTING_JSON" <<'PY'
+          import hashlib, json, os, shutil, subprocess, sys
           from pathlib import Path
 
           cache_tag, repo, existing_raw = sys.argv[1], sys.argv[2], sys.argv[3]
-          existing = set(line.strip() for line in existing_raw.splitlines() if line.strip())
+          existing_assets = json.loads(existing_raw).get("assets", [])
+          existing = {a["name"] for a in existing_assets}
+          keep_now = set()
+
+          def upload_if_missing(src: Path, remote_name: str) -> str:
+              keep_now.add(remote_name)
+              if remote_name in existing:
+                  print(f"[slim-apk] already cached: {remote_name}")
+              else:
+                  staged = Path(os.environ["RUNNER_TEMP"]) / remote_name
+                  shutil.copy2(src, staged)
+                  print(f"[slim-apk] uploading new asset: {remote_name}")
+                  subprocess.run(
+                      ["gh", "release", "upload", cache_tag, str(staged), "--clobber"],
+                      check=True,
+                  )
+                  staged.unlink(missing_ok=True)
+                  existing.add(remote_name)
+              return f"https://github.com/{repo}/releases/download/{cache_tag}/{remote_name}"
+
+          # 1. Externalize Linux runtime rootfs archive(s)
           assets_dir = Path("runtime/out/arm64-v8a/assets/runtime")
           manifest_path = assets_dir / "manifest.json"
           manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
           schema = manifest.get("schema", 1)
 
-          def publish_archive(asset_name: str, sha256: str) -> str:
+          def publish_runtime(asset_name: str, sha256: str) -> str:
               src = assets_dir / asset_name
               assert src.is_file(), f"missing built runtime archive: {src}"
               if asset_name.endswith(".tar.xz"):
@@ -136,32 +156,62 @@ jobs:
                   stem, ext = asset_name[:-7], ".tar.gz"
               else:
                   stem, ext = os.path.splitext(asset_name)
-              remote_name = f"{stem}-{sha256[:12]}{ext}"
-              if remote_name in existing:
-                  print(f"[slim-apk] runtime archive already cached: {remote_name}")
-              else:
-                  staged = Path(os.environ["RUNNER_TEMP"]) / remote_name
-                  shutil.copy2(src, staged)
-                  print(f"[slim-apk] uploading new runtime archive: {remote_name}")
-                  subprocess.run(
-                      ["gh", "release", "upload", cache_tag, str(staged), "--clobber"],
-                      check=True,
-                  )
-                  staged.unlink(missing_ok=True)
+              url = upload_if_missing(src, f"{stem}-{sha256[:12]}{ext}")
               src.unlink()
-              return f"https://github.com/{repo}/releases/download/{cache_tag}/{remote_name}"
+              return url
 
           if schema == 1:
-              manifest["rootfsUrl"] = publish_archive(manifest["rootfs"], manifest["rootfsSha256"])
+              manifest["rootfsUrl"] = publish_runtime(manifest["rootfs"], manifest["rootfsSha256"])
           elif schema == 2:
               for layer_name in ("base", "engine"):
                   layer = manifest["layers"][layer_name]
-                  layer["downloadUrl"] = publish_archive(layer["asset"], layer["sha256"])
+                  layer["downloadUrl"] = publish_runtime(layer["asset"], layer["sha256"])
           else:
               raise SystemExit(f"unsupported runtime manifest schema: {schema}")
 
           manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
           print(f"[slim-apk] updated {manifest_path}")
+
+          # 2. Externalize speech ONNX models (silero_vad.onnx + smart-turn-v3.2-cpu.onnx)
+          speech_dir = Path("app/android/app/src/main/assets/speech")
+          speech_models = {}
+          if speech_dir.is_dir():
+              for onnx in sorted(speech_dir.glob("*.onnx")):
+                  sha = hashlib.sha256(onnx.read_bytes()).hexdigest()
+                  remote_name = f"{onnx.stem}-{sha[:12]}{onnx.suffix}"
+                  url = upload_if_missing(onnx, remote_name)
+                  speech_models[onnx.name] = {
+                      "sha256": sha,
+                      "bytes": onnx.stat().st_size,
+                      "url": url,
+                  }
+                  onnx.unlink()
+              if speech_models:
+                  (speech_dir / "manifest.json").write_text(
+                      json.dumps({"schema": 1, "models": speech_models}, indent=2, ensure_ascii=False) + "\n",
+                      encoding="utf-8",
+                  )
+                  print(f"[slim-apk] externalized {len(speech_models)} speech ONNX models")
+
+          # 3. Prune old cached assets per prefix, keeping the 3 most recent versions
+          refreshed = json.loads(
+              subprocess.check_output(["gh", "release", "view", cache_tag, "--json", "assets"], text=True)
+          ).get("assets", [])
+          by_prefix = {}
+          for asset in refreshed:
+              name = asset["name"]
+              prefix = name.rsplit("-", 1)[0] if "-" in name else name
+              by_prefix.setdefault(prefix, []).append(asset)
+          for prefix, items in by_prefix.items():
+              items.sort(key=lambda a: a.get("updatedAt") or a.get("createdAt") or "", reverse=True)
+              for stale in items[3:]:
+                  if stale["name"] in keep_now:
+                      continue
+                  print(f"[slim-apk] pruning old cached asset: {stale['name']}")
+                  subprocess.run(
+                      ["gh", "release", "delete-asset", cache_tag, stale["name"], "--yes"],
+                      check=False,
+                  )
           PY
 
       - name: App dependencies

@@ -2,8 +2,6 @@
 // conversation, a file or a plugin, in the app's own type and the person's
 // accent colour, with the dsh-go lockup and a QR code to the project page.
 
-import 'dart:ui' show ImageFilter;
-
 import 'package:flutter/material.dart';
 
 import '../../l10n/l10n.dart';
@@ -401,10 +399,8 @@ class _GlassPanel extends StatelessWidget {
       ),
       child: ClipRSuperellipse(
         borderRadius: radius,
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
-          child: CustomPaint(painter: _GlassPainter(radius), foregroundPainter: _GlassRimPainter(radius), child: child),
-        ),
+        // Fork: disable BackdropFilter blur on share card.
+        child: CustomPaint(painter: _GlassPainter(radius), foregroundPainter: _GlassRimPainter(radius), child: child),
       ),
     );
   }

@@ -13,7 +13,6 @@ import 'links/page_links.dart' show registerPageLink, tavernPageLink;
 import 'runtime/local_paths.dart';
 import 'state/locale_state.dart';
 import 'ui/common/third_party_licenses.dart';
-import 'ui/fx/metal/metal_shader.dart';
 import 'ui/settings/font_licenses.dart';
 import 'ui/tavern/tavern_home_page.dart';
 import 'ui/theme/theme.dart';
@@ -32,8 +31,7 @@ Future<void> _startApp() async {
   registerFontLicenses();
   // dshgo://open/tavern: the page lives in ui/, which links/ does not import.
   registerPageLink(tavernPageLink, () => const TavernHomePage());
-  // Fork: skip DistortionWave shader precache since mode switching uses standard transitions.
-  unawaited(MetalShader.load());
+  // Fork: skip decorative DistortionWave and MetalShader precache at cold start.
   // Edge-to-edge with transparent system bars; pages refine the icon brightness
   // through AnnotatedRegion(dshSystemOverlay(...)).
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);

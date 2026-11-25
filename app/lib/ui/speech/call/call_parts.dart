@@ -4,7 +4,6 @@
 
 import 'dart:async';
 import 'dart:math' as math;
-import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
@@ -96,11 +95,8 @@ class _CallKeyState extends State<CallKey> {
               scale: _down ? 0.88 : 1,
               duration: AppMotion.of(context, _down ? AppMotion.press : AppMotion.standard),
               curve: _down ? Curves.easeOut : Curves.easeOutBack,
-              child: widget.blur && !on
-                  ? ClipOval(
-                      child: BackdropFilter(filter: ui.ImageFilter.blur(sigmaX: 18, sigmaY: 18), child: disc),
-                    )
-                  : disc,
+              // Fork: disable BackdropFilter blur on voice call disc buttons.
+              child: disc,
             ),
             const SizedBox(height: 10),
             ExcludeSemantics(

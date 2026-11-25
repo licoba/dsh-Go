@@ -10,7 +10,6 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
-import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -866,11 +865,8 @@ class _Frosted extends StatelessWidget {
       ),
       child: child,
     );
-    if (!blur) return glass;
-    return ClipPath(
-      clipper: ShapeBorderClipper(shape: shape),
-      child: BackdropFilter(filter: ui.ImageFilter.blur(sigmaX: 18, sigmaY: 18), child: glass),
-    );
+    // Fork: disable BackdropFilter blur in voice call controls.
+    return glass;
   }
 }
 

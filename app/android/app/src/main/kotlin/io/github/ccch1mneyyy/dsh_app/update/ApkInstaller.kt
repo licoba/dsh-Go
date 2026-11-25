@@ -40,33 +40,47 @@ class ApkInstaller(private val context: Context) {
         )
     }
 
+    /** Android 8+: the per-app "install unknown apps" switch (bypassed when su root is available). */
+    fun canRequestInstalls(): Boolean =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.O || pm.canRequestPackageInstalls() || hasRootAccess()
+
+    private fun hasRootAccess(): Boolean = try {
+        val proc = ProcessBuilder("su", "-c", "id").redirectErrorStream(true).start()
+        val out = proc.inputStream.bufferedReader().use { it.readText() }
+        proc.waitFor(2, java.util.concurrent.TimeUnit.SECONDS) && proc.exitValue() == 0 && out.contains("uid=0")
+    } catch (_: Exception) {
+        false
+    }
+
     private fun tryInstallWithRoot(apk: File): Boolean {
         val size = apk.length()
         if (size <= 0L) return false
+        val pkg = context.packageName
+        val stage = "/data/local/tmp/dsh-go-self-update.apk"
         return try {
-            val pkg = context.packageName
-            // Schedule relaunch before pm install replaces this process, and stream APK via stdin.
-            val proc = ProcessBuilder(
-                "su", "-c",
-                "pm install -r -d --user 0 -S $size && (sleep 1; monkey -p '$pkg' -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1) &",
-            ).redirectErrorStream(true).start()
-            proc.outputStream.use { out ->
+            // 1. Stream APK to /data/local/tmp under root so pm install survives this process being replaced.
+            val stageProc = ProcessBuilder("su", "-c", "cat > '$stage' && chmod 644 '$stage'")
+                .redirectErrorStream(true)
+                .start()
+            stageProc.outputStream.use { out ->
                 apk.inputStream().use { input ->
                     input.copyTo(out, 1 shl 16)
                     out.flush()
                 }
             }
-            val output = proc.inputStream.bufferedReader().use { it.readText() }
-            val code = proc.waitFor()
-            code == 0 && output.contains("Success", ignoreCase = true)
+            if (stageProc.waitFor() != 0) {
+                runCatching { ProcessBuilder("su", "-c", "rm -f '$stage'").start().waitFor() }
+                return false
+            }
+            // 2. Detach install + cleanup + relaunch from the app's process group so replacing self still relaunches.
+            val cmd = "nohup sh -c \"pm install -r -d --user 0 '$stage' && rm -f '$stage' && sleep 1 && " +
+                "monkey -p '$pkg' -c android.intent.category.LAUNCHER 1\" >/dev/null 2>&1 </dev/null &"
+            val installProc = ProcessBuilder("su", "-c", cmd).redirectErrorStream(true).start()
+            installProc.waitFor(5, java.util.concurrent.TimeUnit.SECONDS) && installProc.exitValue() == 0
         } catch (_: Exception) {
             false
         }
     }
-
-    /** Android 8+: the per-app "install unknown apps" switch. */
-    fun canRequestInstalls(): Boolean =
-        Build.VERSION.SDK_INT < Build.VERSION_CODES.O || pm.canRequestPackageInstalls()
 
     /** The system page for that switch, or false when this ROM has none. */
     fun openInstallPermission(launcher: Context?): Boolean {

@@ -10,6 +10,12 @@ name: Fork APK
 
 on:
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        description: Git ref/SHA to checkout and build
+        required: false
+        type: string
   push:
     branches: [main]
 
@@ -30,6 +36,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.ref || github.sha }}
           fetch-depth: 0
           fetch-tags: true
       - uses: actions/setup-java@v4

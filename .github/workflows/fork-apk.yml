@@ -90,7 +90,15 @@ jobs:
           echo "ANDROID_NDK_ROOT=$ndk" >> "$GITHUB_ENV"
           ls "$sdk/ndk"
 
+      - name: Cache built runtime output (arm64)
+        id: runtime-out
+        uses: actions/cache@v4
+        with:
+          path: runtime/out/arm64-v8a
+          key: runtime-built-arm64-v1-${{ hashFiles('runtime/build-runtime.sh', 'runtime/lib/**', 'runtime/locks/**', 'runtime/patches/**', 'runtime/bridge/**', 'runtime/session-deletion/**') }}
+
       - name: Cache runtime downloads
+        if: steps.runtime-out.outputs.cache-hit != 'true'
         uses: actions/cache@v4
         with:
           path: runtime/.cache
@@ -98,6 +106,7 @@ jobs:
           restore-keys: runtime-downloads-fork-
 
       - name: Runtime (arm64)
+        if: steps.runtime-out.outputs.cache-hit != 'true'
         run: |
           set -o pipefail
           runtime/build-runtime.sh arm64-v8a 2>&1 | tee -a "$RUNNER_TEMP/build.log"
@@ -147,25 +156,34 @@ jobs:
           manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
           schema = manifest.get("schema", 1)
 
-          def publish_runtime(asset_name: str, sha256: str) -> str:
+          def publish_runtime(asset_name: str, sha256: str, existing_url: str | None = None) -> str:
               src = assets_dir / asset_name
-              assert src.is_file(), f"missing built runtime archive: {src}"
               if asset_name.endswith(".tar.xz"):
                   stem, ext = asset_name[:-7], ".tar.xz"
               elif asset_name.endswith(".tar.gz"):
                   stem, ext = asset_name[:-7], ".tar.gz"
               else:
                   stem, ext = os.path.splitext(asset_name)
-              url = upload_if_missing(src, f"{stem}-{sha256[:12]}{ext}")
+              remote_name = f"{stem}-{sha256[:12]}{ext}"
+              if not src.is_file() and existing_url and remote_name in existing:
+                  keep_now.add(remote_name)
+                  print(f"[slim-apk] reusing cached runtime manifest URL: {remote_name}")
+                  return existing_url
+              assert src.is_file(), f"missing built runtime archive: {src}"
+              url = upload_if_missing(src, remote_name)
               src.unlink()
               return url
 
           if schema == 1:
-              manifest["rootfsUrl"] = publish_runtime(manifest["rootfs"], manifest["rootfsSha256"])
+              manifest["rootfsUrl"] = publish_runtime(
+                  manifest["rootfs"], manifest["rootfsSha256"], manifest.get("rootfsUrl")
+              )
           elif schema == 2:
               for layer_name in ("base", "engine"):
                   layer = manifest["layers"][layer_name]
-                  layer["downloadUrl"] = publish_runtime(layer["asset"], layer["sha256"])
+                  layer["downloadUrl"] = publish_runtime(
+                      layer["asset"], layer["sha256"], layer.get("downloadUrl")
+                  )
           else:
               raise SystemExit(f"unsupported runtime manifest schema: {schema}")
 
@@ -245,7 +263,7 @@ jobs:
       - name: Build side APK
         run: |
           set -o pipefail
-          tooling/build-apk.sh --side --no-companion 2>&1 | tee -a "$RUNNER_TEMP/build.log"
+          tooling/build-apk.sh --side --no-companion -- --split-debug-info=build/symbols 2>&1 | tee -a "$RUNNER_TEMP/build.log"
           ls -l app/build/app/outputs/flutter-apk/
 
       - name: Publish APK

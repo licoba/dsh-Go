@@ -5,7 +5,6 @@
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart' show PredictiveBackEvent;
 
 import 'motion.dart';
@@ -103,15 +102,8 @@ class CardOrigin {
 
   /// [card]'s render box is the card's outline.
   static void remember(BuildContext card, {double radius = AppShape.lg}) {
-    if (!AppMotion.fluid(card)) return;
-    final box = card.findRenderObject();
-    final frame = Navigator.maybeOf(card)?.context.findRenderObject();
-    if (box is! RenderBox || !box.hasSize || frame is! RenderBox) return;
-    _pending = CardOrigin._(box.localToGlobal(Offset.zero, ancestor: frame) & box.size, radius, ModalRoute.of(card));
-    // Gone after the next frame, whether or not anything took it.
-    SchedulerBinding.instance
-      ..addPostFrameCallback((_) => _pending = null)
-      ..ensureVisualUpdate();
+    // Fork: use standard slide page transitions instead of card-morph animations.
+    return;
   }
 
   /// The origin of [route], fixed the first time the route is built.

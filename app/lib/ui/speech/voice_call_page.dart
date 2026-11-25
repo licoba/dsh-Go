@@ -77,20 +77,9 @@ Future<void> openVoiceCall(
   final container = ProviderScope.containerOf(context, listen: false);
   container.read(readAloudProvider.notifier).stop();
   await Navigator.of(context).push(
-    PageRouteBuilder<void>(
-      opaque: true,
+    MaterialPageRoute<void>(
       fullscreenDialog: true,
-      transitionDuration: AppMotion.of(context, const Duration(milliseconds: 520)),
-      reverseTransitionDuration: AppMotion.of(context, AppMotion.collapse),
-      pageBuilder: (_, _, _) => VoiceCallPage(title: title, conversation: conversation, backdrop: backdrop),
-      transitionsBuilder: (_, animation, _, child) {
-        final curve = CurvedAnimation(parent: animation, curve: AppMotion.enter, reverseCurve: AppMotion.exit);
-        // Opening: the page rises out of the dark.
-        return FadeTransition(
-          opacity: curve,
-          child: ScaleTransition(scale: Tween(begin: 1.06, end: 1.0).animate(curve), child: child),
-        );
-      },
+      builder: (_) => VoiceCallPage(title: title, conversation: conversation, backdrop: backdrop),
     ),
   );
   // Off the call: its conversation is no longer the one being heard (ChatCallConversation set it).

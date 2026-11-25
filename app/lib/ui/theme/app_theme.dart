@@ -128,12 +128,9 @@ ThemeData _build(
   ThemePack? themePack,
   Map<String, String> loadedFonts = const {},
 ]) {
-  // iOS 式水平推入,上一页左移变暗;系统预测返回与边缘右滑都跟手
-  // (见 page_transitions.dart)。全平台同一套,二级页的观感只此一处。
+  // Fork: always use the standard slide page transition (no fluid/card-morph animation).
   final pages = instantPages
       ? const AppPageTransitionsBuilder.instant()
-      : fluid
-      ? const AppPageTransitionsBuilder.fluid()
       : const AppPageTransitionsBuilder();
   final transitions = PageTransitionsTheme(builders: {for (final platform in TargetPlatform.values) platform: pages});
 

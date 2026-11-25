@@ -201,8 +201,8 @@ class DistortionWaveRoute<T> extends PageRoute<T> {
   @override
   Duration get reverseTransitionDuration => _plain ? _plainDuration : _seconds(style.duration / style.returnSpeed);
 
-  /// Asked afresh for each way: the system setting may change while the page is up.
-  bool get _plainNow => WavePrograms.ready == null || AppMotion.reduced(navigator!.context);
+  /// Fork: always fall back to a plain fade instead of the shader wave transition.
+  bool get _plainNow => true;
 
   @override
   AnimationController createAnimationController() {
